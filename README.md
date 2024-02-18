@@ -1,6 +1,6 @@
 # int64 for C64 #
 
-64-bit integer support in machine language for Commodore 64
+64-bit integer support in 6502 assembly language for Commodore 64
 
 Methods implemented
 
