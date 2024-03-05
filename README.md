@@ -12,24 +12,25 @@ Methods implemented
 * int64_negate - toggle negative/positive 64-bit number
 * int64_mul - 64-bit multication result is 128-bit
 * int128_div - 128-bit number divided by 64-bit, 128-bit result and remainder
+* int64_tostring - convert int64 value to string (decimal, binary, octal, or hex)
+* int128_tostring - convert int128 value to string (decimal, binary, octal, or hex)
 
 Methods yet to be implemented
-* int64_tostring
 * int64_fromstring
 
 Limitations
 
 * build script requires Bash shell or equivalent (to do: add a batch file)
-* division ignoring signed values, assuming unsigned for now
+* division ignoring signed values, assuming unsigned for now (note: work in progress)
+* tostring methods missing support for negative values
 * 128-bit support is unsymmetrical, especially division
 * recommend add full 8-bit/16-bit/32-bit/64-bit/128-bit support with mix
 * adding macros for iterative low level operations could simplify code
 * compare ignoring signed values, assuming unsigned for now
-* missing implementation for converting to decimal output
-* missing implementation for converting to binary output
 * missing implementation for initializing from string (decimal, hex, binary)
 * flags may not be correct for overflow, negative, etc.
 * doesn't unroll loops, not focused on maximum speed performance
+* tostring methods are slow based on repetitive division of 128bits by 128bits, could be optimized
 
 ![BASIC demo test](media/demo2/demo2.png)
 
