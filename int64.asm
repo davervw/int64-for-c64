@@ -9,6 +9,7 @@
 ptr1=$fb
 ptr2=$fd
 ptr3=$22
+ptr4=$24
 
 int64_methods:
   jmp int64_zero
@@ -154,8 +155,21 @@ int128_negate_sum:
   sec
 - lda uint128_sum, y
   eor #$FF ; invert all the bits to ones complement
-  adc #0 ; increase by one to twos complement
+  adc #0 ; increase by one to twos complement via carry
   sta uint128_sum, y
+  iny
+  tya
+  and #$0F
+  bne -
+  rts
+
+int128_negate_remain:
+  ldy #0
+  sec
+- lda uint128_remain, y
+  eor #$FF ; invert all the bits to ones complement
+  adc #0 ; increase by one to twos complement via carry
+  sta uint128_remain, y
   iny
   tya
   and #$0F
@@ -253,6 +267,7 @@ int128_div: ; input: divisor as pointer to 8 byte memory in .A(low) and .X(high)
 ; arguments to working area
 ; and initialize sum & shift to zeros
   jsr int64_arg3
+int128_divinternal:
   ldy #7
 - lda (ptr3), y
   sta uint128_divisor, y
@@ -268,7 +283,14 @@ int128_div: ; input: divisor as pointer to 8 byte memory in .A(low) and .X(high)
   sta uint128_remain+8, y
   dey
   bpl -
-  inc uint128_shift
+  ldx #0
+  stx $ff
+  ldy #7
+  lda (ptr1), y
+  bpl +
+  inc $ff
+  jsr int128_negate_remain
++ inc uint128_shift
 ; compare remain and divisor to see if already done
   ldy #15
 - lda uint128_remain, y
@@ -361,6 +383,10 @@ int128_div: ; input: divisor as pointer to 8 byte memory in .A(low) and .X(high)
   bpl -
   bcs --- ; branch if remain >= divisor
   brk ; not possible to get here
++ bit $ff
+  bpl +
+  jsr int128_negate_sum
+  jsr int128_negate_remain
 + ; done, copy 128-bit result to arg1(low), arg2(high)
   ldy #7
 - lda uint128_sum, y
@@ -374,13 +400,116 @@ int128_div: ; input: divisor as pointer to 8 byte memory in .A(low) and .X(high)
   ldx #>uint128_remain
   rts
 
-int64_tostring: ; input: .A base to convert to (2, 8, 10, 16)
+int128_tostring: ; input: int128 argument already loaded into ptr1(low), ptr2(high), .Y base to convert to (2, 8, 10, 16)
+                 ; output: pointer to a buffer .A(low),.X(high) containing string, .Y=length in bytes, nul terminated as well
+  lda #0
+  sta string_buffer_count
+  sty byte_base
+--ldy byte_base
+  lda #<uint128_divisor
+  ldx #>uint128_divisor
+  jsr int128_frombyte
+  sta ptr3
+  stx ptr3+1
+  jsr int128_divinternal ; [1][2] = [1][2]/[AX], [AX] = R
+  inc string_buffer_count
+  sec
+  lda #(string_buffer_end-string_buffer_count)
+  sbc string_buffer_count
+  tay
+  lda uint128_remain
+  ora #$30
+  cmp #$3a
+  bcc +
+  adc #$06
++ sta string_buffer, y
+  ldy #15
+- lda uint128_sum, y
+  bne --
+  dey
+  bpl -
+  lda #<string_buffer
+  sta ptr2
+  lda #>string_buffer
+  sta ptr2+1
+  sec
+  lda #(string_buffer_end-string_buffer_count)
+  sbc string_buffer_count
+  clc
+  adc ptr2
+  sta ptr2
+  bcc +
+  inc ptr2+1
++ lda ptr2
+  ldx ptr2+1
+  ldy string_buffer_count
+  rts
+
+int64_tostring: ; input: int64 argument in .A(low), .X(high), and .Y base to convert to (2, 8, 10, 16)
                 ; output: pointer to a buffer containing string, .Y=length in bytes, nul terminated as well
-  brk
-  
+  ; because we only have 128bit division right now, up convert 64 bit request to 128bit to convert to string
+  jsr int64_arg1 ; setup low 64-bits of argument
+  sty $ff ; save base in $ff
+  ; sign extend ptr1 into ptr2
+  ldy #7
+  lda (ptr1), y
+  asl
+  ldy #0
+  bcc +
+  dey
++ lda #<uint64_temp1
+  ldx #>uint64_temp1
+  jsr int64_arg2 ; setup address to high 64-bits of argument
+  jsr int64_frombyte ; sign extend y into arg2
+  ; all that is left is to load registers and call conversion
+  lda #<uint64_temp2
+  ldx #>uint64_temp2
+  ldy $ff ; restore base
+  jmp int128_tostring
+
 int64_fromstring: ; input .A(low),.X(high) pointer to string nul terminated, .Y=base (2, 8, 10, 16), and should have called int64_arg1 first
                   ; output: modifies memory pointed to by arg1
   brk
+
+int64_frombyte: ; input .Y byte to store as int128 at address .A(low), .X(high), of 8 bytes
+                 ; output: modified memory pointed to by .A(low)/.X(high) including sign extension
+  sta ptr4
+  stx ptr4+1
+  tya
+  ldy #0
+  sta (ptr4), y
+  ldx #0
+  ora #0
+  bpl +
+  dex
++ txa
+  ldy #7
+- sta (ptr4),y
+  dey
+  bne - ; up to but not including byte at index zero
+  lda ptr4
+  ldx ptr4+1
+  rts
+
+int128_frombyte: ; input .Y byte to store as int128 at address .A(low), .X(high), of 8 bytes
+                  ; output: .A(low), .X(high) pointing to int128, same address
+  sta ptr4
+  stx ptr4+1
+  tya
+  ldy #0
+  sta (ptr4), y
+  ldx #0
+  ora #0
+  bpl +
+  dex
++ txa
+  ldy #15
+- sta (ptr4),y
+  dey
+  bne - ; up to but not including byte at index zero
+  lda ptr4
+  ldx ptr4+1
+  rts
 
 int64_outhex ; input: pointer to 8 byte memory in .A(low) and .X(high)
              ; output: to output device (screen), 16 hex digits
@@ -437,3 +566,22 @@ uint64_remain:
 uint128_remain:
   !byte 0, 0, 0, 0, 0, 0, 0, 0
   !byte 0, 0, 0, 0, 0, 0, 0, 0
+
+uint64_temp1:
+  !byte 0, 0, 0, 0, 0, 0, 0, 0
+
+uint64_temp2:
+  !byte 0, 0, 0, 0, 0, 0, 0, 0
+
+string_buffer: ; maximum length int128 is 128 characters in binary
+  !byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  !byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  !byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  !byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+string_buffer_end:
+  !byte 0 ; nul terminator
+string_buffer_count:
+  !byte 0
+
+byte_base:
+  !byte 0
